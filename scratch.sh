@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=fine-tuning
-#SBATCH --partition=gpu
+#SBATCH --job-name=train-scratch
+#SBATCH --partition=gpua100
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks=4
+#SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
-#SBATCH --mem=400GB # 800GB for Spice
+#SBATCH --gres=gpu:4
+#SBATCH --mem=400GB 
 #SBATCH --time=23:30:00
 #SBATCH --output=slurm_logs/log-%j.out
 #SBATCH --error=slurm_logs/log-%j.err
@@ -16,6 +16,7 @@ set -eo pipefail
 
 echo "== JOB START: $SLURM_JOB_ID on $(hostname) =="
 
+# nodelist=ruche-gpu19 can run with 32 bs
 # -----------------------------
 # Load conda from module
 # -----------------------------
@@ -41,8 +42,9 @@ echo "Python path: $(which python)"
 echo "CUDA_VISIBLE_DEVICES set to $CUDA_VISIBLE_DEVICES"
 
 # -----------------------------
-# Run finetuning
+# Run from scratch
 # -----------------------------
+
 echo "== Running finetuning from CLI =="
 echo "Running from directory: $(pwd)"
 
@@ -52,17 +54,21 @@ echo "== JOB START: $(date) =="
 
 echo "======================================================="
 
+# --hidden_irreps='128x0e + 128x1o' -> num_channels = 128, max_L = 1
+# It indicates the angular channels up to l = 1 only: scalar 0e and vector 1o
+# --max_ell is a hyperparameter in the interaction/message construction
+
 srun python -m mace.cli.run_train \
     --model="MACE" \
     --stress_weight=0.0 \
-    --forces_weight=100.0 \
-    --energy_weight=1.0 \
-    --lr=0.001 \
-    --scheduler="ReduceLROnPlateau" \
-    --lr_factor=0.8 \
-    --scheduler_patience=10 \
-    --foundation_model="path-to-your-foundation-model" \
-    --multiheads_finetuning=False \
+    --forces_weight=1000.0 \
+    --energy_weight=50.0 \
+    --lr=0.005 \
+    --hidden_irreps='128x0e + 128x1o' \
+    --num_interactions=2 \
+    --correlation=3 \
+    --max_ell=3 \
+    --r_max=6.0 \
     --name="model-name" \
     --model_dir="evals" \
     --log_dir="logs" \
@@ -74,12 +80,16 @@ srun python -m mace.cli.run_train \
     --energy_key="DFT_energy" \
     --forces_key="DFT_forces" \
     --E0s="average" \
+    --weight_decay=5e-7 \
     --ema \
     --ema_decay=0.999 \
+    --clip_grad=10.0 \
     --amsgrad \
     --device=cuda \
     --batch_size=32 \
-    --max_num_epochs=1000 \
+    --max_num_epochs=303 \
+    --distributed \
+    --enable_cueq=True \
     --seed=123 \
 # ---- job body here ----
 
